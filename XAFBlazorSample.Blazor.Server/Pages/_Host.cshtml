@@ -1,0 +1,165 @@
+﻿@page "/"
+@namespace XAFBlazorSample.Blazor.Server
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@using DevExpress.ExpressApp.Blazor.Components
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, shrink-to-fit=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- meta name="theme-color" content="#000000" -->
+    <title>XAFBlazorSample</title>
+    <base href="~/" />
+    <component type="typeof(BootstrapThemeLink)" render-mode="Static" />
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"
+            integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4="
+            crossorigin="anonymous"></script>
+
+    @*Uses underscore only for debounce function, remove that if desired.*@
+    <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.13.6/underscore-min.js" integrity="sha512-2V49R8ndaagCOnwmj8QnbT1Gz/rie17UouD9Re5WxbzRVUGoftCu5IuqqtAM9+UC3fwfHCSJR1hkzNQh/2wdtg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <script>
+        // IIFE containing code that calculates size and returns to listview controller
+        var PageSizeManager = (function () {
+            var r = function (viewId, controllerReference) {
+                var THIS = this;
+                THIS.controllerReference = controllerReference;
+                THIS.viewId = viewId;
+                THIS.viewSelector = ".mycustom-viewid-" + THIS.viewId;
+                console.log('WaitForElement: ', $(THIS.viewSelector), THIS.viewSelector);
+                waitForElm(THIS.viewSelector).then((elm) => {
+                    THIS.setPageSize();
+                });
+            }
+            r.prototype.setPageSize = function() {
+                var THIS = this;
+                var viewContainer = $(THIS.viewSelector);
+                var isDialogContainer = $(THIS.viewSelector).closest(".dxbl-modal-body").length > 0;
+                var isDashboardContainer = $(THIS.viewSelector).closest(".my-viewtype-dashboardview").length > 0; // CSS class st on CustomApplicationTemplate
+                var isDetailView = $(THIS.viewSelector).closest(".my-viewtype-detailview").length > 0;  // CSS class st on CustomApplicationTemplate
+                var viewContainerHeight = viewContainer.height();
+                var containerAdditionalHeight = 0;
+
+                if (isDialogContainer) {
+                    viewContainer = $(THIS.viewSelector).closest(".dxbl-modal-body");
+                    viewContainerHeight = viewContainer.height();
+                } else if (isDashboardContainer) {
+                    viewContainer = $(THIS.viewSelector).closest(".my-viewtype-dashboardview"); // CSS class st on CustomApplicationTemplate
+                    viewContainerHeight = viewContainer.height();
+                } else if (isDetailView) {
+                    viewContainer = $(THIS.viewSelector).closest(".my-viewtype-detailview"); // CSS class st on CustomApplicationTemplate
+                    viewContainerHeight = viewContainer.height();
+                }
+
+                // Find well-known items like action containers and tablists and
+                // add their height to the offset to allow estimating avaialable space
+                var offsetHeight = 0;
+                offsetHeight += $(".dxbl-tabs-tablist", viewContainer).outerHeight() | 0;
+                offsetHeight += $(".dxbl-pager-container", viewContainer).outerHeight() | 0;
+
+                // HIGHLY RECOMMENDED that wrapping turned off on grid rows
+                // This gets the average height of the displayed rows to send back to controller
+                var averageRowHeight = Math.round((_.pluck($("tr", $(THIS.viewSelector)), "clientHeight").reduce((partialSum, a) => partialSum + a, 0)) / $("tr", $(THIS.viewSelector)).length);
+                if (isNaN(averageRowHeight)) averageRowHeight = 40;
+
+                // Get count of non-data rows, header, auto-filter row, and pager row
+                var autoRowCount = 1; // Header row
+                autoRowCount += $(".dxbl-grid-filter-row", $(THIS.viewSelector)).length
+
+                var options = {
+                    windowHeight: (isDialogContainer ? $(".dxbl-modal-body").height() : window.innerHeight) | 0,
+                    viewContainerHeight: (viewContainerHeight - offsetHeight) | 0,
+                    gridHeight: $(".grid-content", $(THIS.viewSelector)).outerHeight() | 0,
+                    averageRowHeight: averageRowHeight,
+                    listviewAutoRowCount: autoRowCount | 0
+                };
+                console.log('WaitForElementCallback', THIS.viewId, options);
+                THIS.controllerReference.invokeMethodAsync("WaitForElementCallback", options);
+            }
+            return r;
+
+        }());
+
+        // Support multiple listviews on same page by putting
+        // each manager in a hash
+        var PageSizeManagers = {};
+        window.WaitForElement = function (viewId, controllerReference) {
+            PageSizeManagers[viewId] = new PageSizeManager(viewId, controllerReference);
+        };
+        window.RemoveWaitForElement = function (viewId) {
+            console.log('RemoveWaitForElement',viewId);
+            PageSizeManagers[viewId] = null;
+        }
+        window.addEventListener("resize", _.debounce(function () {
+            for (const [key, value] of Object.entries(PageSizeManagers)) {
+                if (value) value.setPageSize();
+            }
+        }, 500, false));
+
+        // Wait for element (listview) to become available in DOM
+        function waitForElm(selector) {
+            return new Promise(resolve => {
+                if (document.querySelector(selector)) {
+                    return resolve(document.querySelector(selector));
+                }
+                const observer = new MutationObserver(mutations => {
+                    if (document.querySelector(selector)) {
+                        console.log('Mutation Observer Found:' + selector);
+                        resolve(document.querySelector(selector));
+                        observer.disconnect();
+                    }
+                });
+
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            });
+        }
+
+    </script>
+</head>
+<body>
+    @{
+        string userAgent = Request.Headers["User-Agent"];
+        bool isIE = userAgent.Contains("MSIE") || userAgent.Contains("Trident");
+    }
+    @if(isIE) {
+        <link href="css/site.css" rel="stylesheet" />
+        <div class="d-flex flex-column justify-content-center align-items-center h-100">
+            <div class="d-flex">
+                <img class="mt-2 mr-4" src="_content/DevExpress.ExpressApp.Blazor/images/Sad.svg" width="60" height="60" />
+                <div>
+                    <div class="h1">Internet Explorer is not supported.</div>
+                    <p style="font-size: 1rem; opacity: 0.75;" class="m-0">XAFBlazorSample cannot be loaded in Internet Explorer.<br>Please use a different browser.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else {
+        <component type="typeof(SplashScreen)" render-mode="Static" param-Caption='"XAFBlazorSample"' param-ImagePath='"images/SplashScreen.svg"' />
+
+        <link href="_content/DevExpress.ExpressApp.Blazor/styles.css" rel="stylesheet" />
+        <link href="css/site.css" rel="stylesheet" />
+        // Uncomment this link to enable CSS isolation. For more information, refer to the following topic: https://learn.microsoft.com/en-us/aspnet/core/blazor/components/css-isolation
+        //<link href="XAFBlazorSample.Blazor.Server.styles.css" rel="stylesheet">
+        <script src="_content/DevExpress.ExpressApp.Blazor/scripts.js"></script>
+
+        <app class="d-none">
+            <component type="typeof(App)" render-mode="Server" />
+        </app>
+        
+        <component type="typeof(AlertsHandler)" render-mode="Server" />
+
+        <div id="blazor-error-ui">
+            <component type="typeof(BlazorError)" render-mode="Static" />
+        </div>
+
+        <script src="_framework/blazor.server.js"></script>
+    }
+</body>
+</html>
